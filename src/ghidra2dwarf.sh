@@ -1,21 +1,24 @@
 #!/bin/bash
+# Headless PyGhidra launcher for ghidra2dwarf.
+#
+# Usage:
+#   GHIDRA_INSTALL_DIR=/path/to/ghidra ./src/ghidra2dwarf.sh /path/to/binary
+#
+# The Python interpreter must have pyghidra installed.  Set PYGHIDRA_PYTHON
+# when it is not the default python3.
+set -euo pipefail
 
-#script to automatically decompile and output source code of a binary with ghidra
-
-GHIDRA_PATH=/opt/ghidra
-if [ "$#" -ne 4 ]
-then 
-    echo "$0 <Project directory> <Project name> <Binary path> <Binary>"
-    exit
+if [ "$#" -lt 1 ]; then
+    echo "Usage: $0 <binary> [script args...]" >&2
+    exit 1
 fi
 
-DIR=$1
-NAME=$2
-BINARY_PATH=$3
-BINARY=$4
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GHIDRA_INSTALL_DIR="${GHIDRA_INSTALL_DIR:-/opt/ghidra}"
+PYGHIDRA_PYTHON="${PYGHIDRA_PYTHON:-python3}"
 
-#remove gpr and rep files first (CAREFUL!)
-rm -rf *.gpr *.rep
-
-time $GHIDRA_PATH/support/analyzeHeadless $DIR/ $NAME -process $BINARY -postscript ./ghidra2dwarf.py
-
+"${PYGHIDRA_PYTHON}" -m pyghidra \
+    --install-dir "${GHIDRA_INSTALL_DIR}" \
+    "$1" \
+    "${SCRIPT_DIR}/ghidra2dwarf.py" \
+    "${@:2}"
