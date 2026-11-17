@@ -105,15 +105,11 @@ class Elf:
 
 	def _dump_struct(self, cls, off):
 		s = self._get_struct(cls)
-		# unpack_from doesn't work with jython
-		# return cls(s.unpack_from(self.bytes, off), file_offset=off)
 		bb = self.bytes[off:off+s.size]
 		return cls(s.unpack(bytes(bb)), file_offset=off)
 
 	def _export_struct(self, val, off):
 		s = self._get_struct(val.__class__)
-		# unpack_into doesn't work with jython
-		# s.pack_into(self.bytes, off, *val.values)
 		self.bytes[off:off+s.size] = s.pack(*val.values)
 
 	def extract_ident(self):

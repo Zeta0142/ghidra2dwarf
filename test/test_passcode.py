@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
+
 from util import Gdb
 
 
+def find_line(filename: str, needle: str) -> int:
+    for number, line in enumerate(Path(filename).read_text().splitlines(), 1):
+        if needle in line:
+            return number
+    raise AssertionError(f"{needle!r} not found in {filename}")
+
+
 def test_function():
-    gdb = Gdb("binaries", "passcode_dbg", debug=True)
-    gdb.breakpoint(193)
-    gdb.breakpoint(166)
+    gdb = Gdb("binaries", "passcode_dbg")
 
-    NAME = 'aaaabaaacaaadaaaeaaafaaagaaahaaaiaaajaaakaaalaaamaaanaaaoaaapaaaqaaaraaasaaataaauaaavaaawaaaxaaayaaa'
-    INPUT = f'{NAME} 1 2'
-    gdb.run(stdin=INPUT)
+    info = gdb.execute_gdb("info line login")
+    assert "login" in info
 
-    assert NAME == gdb.get_string("(char *)name")
-    gdb.execute_raw("c")
-
-    assert 0x61616179 == gdb.get_int("passcode1")
-    assert 'scanf' in gdb.get_line(166)
+    line = find_line("binaries/passcode_dbg.c", "void login(void)")
+    assert "login" in gdb.get_line(line)

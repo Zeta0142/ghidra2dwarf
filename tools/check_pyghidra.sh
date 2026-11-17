@@ -8,7 +8,7 @@
 # Example:
 #   GHIDRA_INSTALL_DIR=/home/z142/ghidra_12.1.3_PUBLIC \
 #   PYGHIDRA_PYTHON=/home/z142/.config/ghidra/ghidra_12.1.3_PUBLIC/venv/bin/python3 \
-#   ./poc/run_pyghidra_check.sh
+#   ./tools/check_pyghidra.sh
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 BINARY="${1:-${ROOT}/test/binaries/test_ghidra}"
 PROJECT_PATH="${PROJECT_PATH:-/tmp/g2d-pyghidra-project}"
-PROJECT_NAME="${PROJECT_NAME:-g2d_poc}"
+PROJECT_NAME="${PROJECT_NAME:-g2d_check}"
 
 "${PYGHIDRA_PYTHON}" -m pyghidra \
     --install-dir "${GHIDRA_INSTALL_DIR}" \
@@ -25,4 +25,4 @@ PROJECT_NAME="${PROJECT_NAME:-g2d_poc}"
     --project-name "${PROJECT_NAME}" \
     --project-path "${PROJECT_PATH}" \
     "${BINARY}" \
-    "${ROOT}/poc/ghidra_scripts/pyghidra_ctypes_check.py"
+    "${ROOT}/tools/ghidra_scripts/check_pyghidra.py"

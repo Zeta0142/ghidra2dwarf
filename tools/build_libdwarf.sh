@@ -41,5 +41,5 @@ find "${BUILD}/src/lib" -maxdepth 2 \( \
     \) -print | sort
 
 echo
-echo "run the PoC with:"
-echo "  python3 ${ROOT}/poc/make_dwarf.py --out /tmp/ghidra2dwarf-libdwarfp-poc"
+echo "run the smoke test with:"
+echo "  python3 ${ROOT}/tools/smoke_producer.py --out /tmp/ghidra2dwarf-smoke"

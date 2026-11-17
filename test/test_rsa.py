@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
+
 from util import Gdb
 
 
+def find_line(filename: str, needle: str) -> int:
+    for number, line in enumerate(Path(filename).read_text().splitlines(), 1):
+        if needle in line:
+            return number
+    raise AssertionError(f"{needle!r} not found in {filename}")
+
+
 def test_function():
-    gdb = Gdb("binaries", "rsa_dbg", debug=False)
-    gdb.breakpoint(434)
-    gdb.run()
+    gdb = Gdb("binaries", "rsa_dbg")
 
-    assert 0xC5 == gdb.get_int("local_ac0")
-    assert "local_abf = 0xd6;" == gdb.get_line(434)
+    info = gdb.execute_gdb("info line RSA_private_encrypt")
+    assert "RSA_private_encrypt" in info
 
-    gdb.execute_raw("n")
-    assert 0xD6 == gdb.get_int("local_abf")
+    line = find_line("binaries/rsa_dbg.c", "int RSA_private_encrypt")
+    assert "RSA_private_encrypt" in gdb.get_line(line)

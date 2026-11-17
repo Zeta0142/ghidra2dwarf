@@ -1,3 +1,6 @@
 #!/bin/sh
+set -e
 
-./generate_dbg.py $1 && pytest .
+cd "$(dirname "$0")"
+./generate_dbg.py
+python3 -m pytest .

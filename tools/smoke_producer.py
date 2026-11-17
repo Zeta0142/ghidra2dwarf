@@ -9,7 +9,7 @@ The point is to validate the native bridge:
 
     CPython 3 -> ctypes -> libdwarfp 2.3.x -> .debug_* bytes -> ELF
 
-Ghidra is deliberately not required for this first PoC.
+Ghidra is deliberately not required for this native-binding smoke test.
 """
 
 from __future__ import annotations
@@ -119,7 +119,7 @@ def main() -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=Path("/tmp/ghidra2dwarf-libdwarfp-poc"),
+        default=Path("/tmp/ghidra2dwarf-smoke"),
         help="output directory",
     )
     parser.add_argument(

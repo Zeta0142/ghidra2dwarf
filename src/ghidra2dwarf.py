@@ -55,6 +55,12 @@ record = {}
 decomp_lines = []
 register_mappings = {}
 decompiler = None
+VERBOSE = os.environ.get("GHIDRA2DWARF_VERBOSE") == "1"
+
+
+def warn(message):
+    if VERBOSE:
+        print("warning: " + message)
 
 
 def iter_java(iterator):
@@ -306,7 +312,7 @@ def add_variable(
             has_location = True
 
         elif varnode_addr.isMemoryAddress():
-            print("warning: memory variable has no location: %s %s" % (name, varnode))
+            warn("memory variable has no location: %s %s" % (name, varnode))
             return var_die
 
         elif varnode_addr.isHashAddress():
@@ -314,11 +320,11 @@ def add_variable(
             return var_die
 
         else:
-            print("warning: unsupported variable location: %s %s" % (name, varnode))
+            warn("unsupported variable location: %s %s" % (name, varnode))
             return var_die
 
     except Exception as exc:
-        print("warning: could not emit location for %s: %s" % (name, exc))
+        warn("could not emit location for %s: %s" % (name, exc))
         return var_die
 
     if has_location:

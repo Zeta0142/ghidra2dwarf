@@ -1,10 +1,11 @@
 # @runtime PyGhidra
-# @category ghidra2dwarf.PoC
+# @category ghidra2dwarf.Tools
 """Check that PyGhidra can load the ctypes libdwarfp binding."""
 
 import os
 import sys
 import traceback
+from pathlib import Path
 
 print("=== pyghidra ctypes/libdwarfp check ===")
 print("python:", sys.version.replace("\n", " "))
@@ -17,13 +18,13 @@ try:
     print("program name:", currentProgram.getName())
     print("executable:", currentProgram.getExecutablePath())
 
-    repo = "/home/z142/Dev/ghidra2dwarf"
-    for path in (os.path.join(repo, "src"), os.path.join(repo, "poc")):
+    repo = str(Path(__file__).resolve().parents[2])
+    for path in (os.path.join(repo, "src"), os.path.join(repo, "tools")):
         if path not in sys.path:
             sys.path.insert(0, path)
 
     import libdwarfp
-    from make_dwarf import build_sections
+    from smoke_producer import build_sections
 
     print("libdwarfp module:", libdwarfp.__file__)
 

@@ -31,9 +31,11 @@ This branch is the migration from the original Jython/JNA implementation to:
 - the modern **libdwarfp** producer API
 - a vendored libdwarf 2.3.3 under `vendor/libdwarf`
 
-The original JNA implementation is still visible in git history.
-
 ## Requirements
+
+For a packaged release, the native libraries are already under
+`lib/<platform>/`, so no build step is needed.  For a source checkout, build
+them with `tools/build_libdwarf.sh` as described below.
 
 - Ghidra 12.x with PyGhidra
 - Python 3.9+
@@ -44,7 +46,7 @@ The original JNA implementation is still visible in git history.
 ## Build the vendored libdwarf
 
 ```bash
-./poc/build_libdwarf.sh
+./tools/build_libdwarf.sh
 ```
 
 This builds:
@@ -77,7 +79,7 @@ Use the PyGhidra command-line runner:
 ```bash
 GHIDRA_INSTALL_DIR=/path/to/ghidra \
 PYGHIDRA_PYTHON=/path/to/python-with-pyghidra \
-./poc/run_full_check.sh /path/to/binary
+./tools/check_integration.sh /path/to/binary
 ```
 
 Or directly:
@@ -128,9 +130,3 @@ Ghidra Program
 - The ELF writer is append-only and assumes a normal section-header table.
 - MCP's `run_ghidra_script` copies only the script file; for GUI testing add the
   full `src` directory to the Script Manager instead.
-
-## Legacy Jython version
-
-The original Jython/JNA version is available in the `master` branch history.
-It requires the Jython extension on Ghidra 12.x and is no longer the primary
-implementation on this branch.

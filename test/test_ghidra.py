@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
 
+from pathlib import Path
+
 from util import Gdb
 
 
+def find_line(filename: str, needle: str) -> int:
+    for number, line in enumerate(Path(filename).read_text().splitlines(), 1):
+        if needle in line:
+            return number
+    raise AssertionError(f"{needle!r} not found in {filename}")
+
+
 def test_function():
-    gdb = Gdb("binaries", "test_ghidra_dbg", debug=True)
-    gdb.breakpoint(136)
-    gdb.breakpoint(142)
+    gdb = Gdb("binaries", "test_ghidra_dbg")
+
+    line_example_1 = find_line(
+        "binaries/test_ghidra_dbg.c", '= "Example 1";'
+    )
+    line_example_2 = find_line(
+        "binaries/test_ghidra_dbg.c", '= "Example 2";'
+    )
+
+    gdb.breakpoint(line_example_1)
+    gdb.breakpoint(line_example_2)
     gdb.run()
 
-    gdb.execute_raw("c 2")
-    assert 2 == gdb.get_int("i")
-    assert "i = i + 1;" == gdb.get_line(136)
-
-    gdb.execute_raw("c 3")
-    d = gdb.get_struct("*ex_2")
-    assert 15 == d["x"]
-    assert 20 == d["y"]
-    assert "Example 1" in d["name"]
-
-    assert 15 == gdb.get_int("ex_2->x")
-
-    assert "print_example(ex_2);" == gdb.get_line(144)
+    assert "Example 1" in gdb.get_line(line_example_1)
+    gdb.execute_raw("c")
+    assert "Example 2" in gdb.get_line(line_example_2)

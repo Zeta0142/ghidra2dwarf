@@ -1,8 +1,8 @@
 """Minimal ctypes binding for the libdwarf producer library (libdwarfp).
 
-This is a proof-of-concept.  It intentionally implements only the producer
-functions needed by ghidra2dwarf.  The goal is to show that CPython (and thus
-PyGhidra) can drive the modern libdwarfp API without JNA or a Java wrapper.
+This binding implements the producer functions needed by ghidra2dwarf.  It
+is intentionally small and targets libdwarf 2.3.x.  CPython (and therefore
+PyGhidra) drives the modern libdwarfp API without JNA or a Java wrapper.
 
 The binding targets libdwarf 2.3.x.  The producer API in that release uses the
 newer ``_a``/``_c`` function variants.
@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes as C
 import ctypes.util
 import os
+import platform
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -50,7 +51,7 @@ Dwarf_Callback_Func = C.CFUNCTYPE(
 )
 
 # ---------------------------------------------------------------------------
-# Constants used by the PoC
+# Constants used by ghidra2dwarf
 # ---------------------------------------------------------------------------
 
 DW_DLV_OK = 0
@@ -124,14 +125,37 @@ class DwarfError(RuntimeError):
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _platform_lib_dir() -> str:
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if machine in ("x86_64", "amd64"):
+        arch = "x86-64"
+    elif machine in ("aarch64", "arm64"):
+        arch = "aarch64"
+    else:
+        arch = machine or "unknown"
+
+    if system == "linux":
+        return "linux-" + arch
+    if system == "darwin":
+        return "darwin-" + arch
+    if system == "windows":
+        return "win32-" + arch
+    return system + "-" + arch
+
+
 _VENDORED_BUILD_ROOTS = (
     _REPO_ROOT / "build" / "libdwarf",
     _REPO_ROOT / "vendor" / "libdwarf" / "build",
+    Path(__file__).resolve().parent / "lib" / _platform_lib_dir(),
+    _REPO_ROOT / "lib" / _platform_lib_dir(),
 )
 
 
 def _vendored_library(name: str) -> Optional[str]:
-    """Find a library produced by poc/build_libdwarf.sh."""
+    """Find a library produced by tools/build_libdwarf.sh."""
 
     patterns = [
         f"lib{name}.so*",
@@ -177,7 +201,7 @@ def _load_library() -> C.CDLL:
     dwarfp_path = _resolve_library("dwarfp", "LIBDWARFP_PATH")
     if not dwarfp_path:
         raise DwarfError(
-            "libdwarfp not found. Run poc/build_libdwarf.sh or set "
+            "libdwarfp not found. Run tools/build_libdwarf.sh or set "
             "LIBDWARFP_PATH to libdwarfp.so/.dylib/.dll."
         )
 
