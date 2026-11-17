@@ -104,6 +104,42 @@ If `objcopy` is unavailable:
 python3 poc/make_dwarf.py --out /tmp/ghidra2dwarf-libdwarfp-poc --no-objcopy
 ```
 
+## PyGhidra check
+
+The same binding has been verified inside **PyGhidra 3.1.0 + Ghidra 12.1.3**,
+headless, with Python 3.14.8:
+
+```text
+python: 3.14.8
+ctypes: /usr/lib64/python3.14/ctypes/__init__.py
+currentProgram: test_ghidra - .ProgramDB
+libdwarfp module: .../poc/libdwarfp.py
+sections: {'.debug_abbrev': 55, '.debug_info': 81, '.debug_line': 53}
+RESULT: OK
+```
+
+Run it with a Python that has `pyghidra` installed:
+
+```bash
+GHIDRA_INSTALL_DIR=/path/to/ghidra \
+PYGHIDRA_PYTHON=/path/to/venv/bin/python3 \
+./poc/run_pyghidra_check.sh
+```
+
+The script is `poc/ghidra_scripts/pyghidra_ctypes_check.py`.
+
+### Ghidra MCP note
+
+If you want to run the check through Ghidra MCP's `run_ghidra_script`, the MCP
+bridge must be started with:
+
+```bash
+export GHIDRA_MCP_ALLOW_SCRIPTS=1
+```
+
+Script execution is disabled by default in current ghidra-mcp versions.  The
+headless PyGhidra command above does not need MCP script execution.
+
 ## Files
 
 | Path | Purpose |
@@ -111,6 +147,8 @@ python3 poc/make_dwarf.py --out /tmp/ghidra2dwarf-libdwarfp-poc --no-objcopy
 | `poc/libdwarfp.py` | ctypes prototypes + `DwarfProducer` wrapper |
 | `poc/make_dwarf.py` | minimal DWARF producer and `objcopy` injection |
 | `poc/build_libdwarf.sh` | builds the vendored libdwarf/libdwarfp |
+| `poc/ghidra_scripts/pyghidra_ctypes_check.py` | PyGhidra smoke test |
+| `poc/run_pyghidra_check.sh` | headless PyGhidra runner |
 | `vendor/libdwarf/` | vendored libdwarf 2.3.3 source (LGPL-2.1) |
 | `poc/README.md` | this file |
 
