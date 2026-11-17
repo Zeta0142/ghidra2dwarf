@@ -48,44 +48,35 @@ Line table:
 0x1008  line 3
 ```
 
-## Build libdwarf / libdwarfp manually
+## Build the vendored libdwarf / libdwarfp
 
-The PoC needs a **modern libdwarf 2.3.x** built with the producer library.
-
-As of libdwarf 2.3.3, CMake only adds `src/lib/libdwarfp` when `BUILD_DWARFGEN=ON`,
-so use that option even if you do not need `dwarfgen` itself.
+libdwarf 2.3.3 is vendored under `vendor/libdwarf/`.  Build it with:
 
 ```bash
-cd /tmp
-curl -L -o libdwarf-2.3.3.tar.xz \
-  https://github.com/davea42/libdwarf-code/releases/download/v2.3.3/libdwarf-2.3.3.tar.xz
-tar xf libdwarf-2.3.3.tar.xz
-mv libdwarf-2.3.3 libdwarf-src
-
-cmake -S /tmp/libdwarf-src -B /tmp/libdwarf-build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DBUILD_DWARFDUMP=OFF \
-  -DBUILD_DWARFGEN=ON \
-  -DBUILD_DWARFEXAMPLE=OFF
-
-cmake --build /tmp/libdwarf-build --target dwarfp-shared -j"$(nproc)"
+poc/build_libdwarf.sh
 ```
+
+The script writes to `build/libdwarf/` and uses `BUILD_DWARFGEN=ON` because, as
+of libdwarf 2.3.3, CMake only adds `src/lib/libdwarfp` when dwarfgen is enabled.
+We only need the library, not the `dwarfgen` executable.
 
 Result:
 
 ```text
-/tmp/libdwarf-build/src/lib/libdwarf/libdwarf.so.2.3.3
-/tmp/libdwarf-build/src/lib/libdwarfp/libdwarfp.so.2.3.3
+build/libdwarf/src/lib/libdwarf/libdwarf.so.2.3.3
+build/libdwarf/src/lib/libdwarfp/libdwarfp.so.2.3.3
 ```
 
 On macOS/Windows the names will be `libdwarf.dylib` / `libdwarfp.dylib` and
 `libdwarf.dll` / `libdwarfp.dll`.
 
+`poc/libdwarfp.py` automatically looks in `build/libdwarf/`, so no environment
+variables are needed after this.  `LIBDWARFP_PATH` and `LIBDWARF_PATH` still
+override the search when needed.
+
 ## Run the PoC
 
 ```bash
-LIBDWARFP_PATH=/tmp/libdwarf-build/src/lib/libdwarfp/libdwarfp.so.2.3.3 \
-LIBDWARF_PATH=/tmp/libdwarf-build/src/lib/libdwarf/libdwarf.so.2.3.3 \
 python3 poc/make_dwarf.py --out /tmp/ghidra2dwarf-libdwarfp-poc
 ```
 
@@ -115,11 +106,13 @@ python3 poc/make_dwarf.py --out /tmp/ghidra2dwarf-libdwarfp-poc --no-objcopy
 
 ## Files
 
-| File | Purpose |
+| Path | Purpose |
 |---|---|
-| `libdwarfp.py` | ctypes prototypes + `DwarfProducer` wrapper |
-| `make_dwarf.py` | minimal DWARF producer and `objcopy` injection |
-| `README.md` | this file |
+| `poc/libdwarfp.py` | ctypes prototypes + `DwarfProducer` wrapper |
+| `poc/make_dwarf.py` | minimal DWARF producer and `objcopy` injection |
+| `poc/build_libdwarf.sh` | builds the vendored libdwarf/libdwarfp |
+| `vendor/libdwarf/` | vendored libdwarf 2.3.3 source (LGPL-2.1) |
+| `poc/README.md` | this file |
 
 ## Important notes
 

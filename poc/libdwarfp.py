@@ -13,6 +13,7 @@ from __future__ import annotations
 import ctypes as C
 import ctypes.util
 import os
+from pathlib import Path
 from typing import Dict, Optional
 
 # ---------------------------------------------------------------------------
@@ -118,36 +119,62 @@ class DwarfError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+_VENDORED_BUILD_ROOTS = (
+    _REPO_ROOT / "build" / "libdwarf",
+    _REPO_ROOT / "vendor" / "libdwarf" / "build",
+)
+
+
+def _vendored_library(name: str) -> Optional[str]:
+    """Find a library produced by poc/build_libdwarf.sh."""
+
+    patterns = [
+        f"lib{name}.so*",
+        f"{name}.so*",
+        f"lib{name}.dylib",
+        f"{name}.dylib",
+        f"lib{name}.dll",
+        f"{name}.dll",
+    ]
+    for root in _VENDORED_BUILD_ROOTS:
+        if not root.is_dir():
+            continue
+        for pattern in patterns:
+            for candidate in sorted(root.rglob(pattern)):
+                if candidate.is_file():
+                    return str(candidate)
+    return None
+
+
+def _resolve_library(name: str, env_var: str) -> Optional[str]:
+    """Env override, then vendored build, then system lookup."""
+
+    path = os.environ.get(env_var)
+    if path:
+        return path
+    path = _vendored_library(name)
+    if path:
+        return path
+    return ctypes.util.find_library(name)
+
+
 def _load_library() -> C.CDLL:
-    """Load libdwarfp.
+    """Load libdwarfp and, when possible, its libdwarf dependency."""
 
-    Set LIBDWARFP_PATH when the library is not in the system loader path.
-    A matching libdwarf is loaded first when LIBDWARF_PATH is set, or when it
-    can be found through ctypes.util.find_library(); this gives us
-    dwarf_errmsg() and also makes the dependency explicit.
-    """
-
-    dwarf_path = os.environ.get("LIBDWARF_PATH")
-    if not dwarf_path:
-        found = ctypes.util.find_library("dwarf")
-        if found:
-            dwarf_path = found
-
+    dwarf_path = _resolve_library("dwarf", "LIBDWARF_PATH")
     if dwarf_path:
         try:
             C.CDLL(dwarf_path, mode=getattr(C, "RTLD_GLOBAL", 0))
         except OSError:
-            # libdwarfp's own RUNPATH may still find it.
+            # libdwarfp's own RUNPATH may still find libdwarf.
             pass
 
-    dwarfp_path = os.environ.get("LIBDWARFP_PATH")
-    if not dwarfp_path:
-        dwarfp_path = ctypes.util.find_library("dwarfp")
-
+    dwarfp_path = _resolve_library("dwarfp", "LIBDWARFP_PATH")
     if not dwarfp_path:
         raise DwarfError(
-            "libdwarfp not found. Build libdwarf 2.3.x with the producer "
-            "library enabled and set LIBDWARFP_PATH to libdwarfp.so/.dylib/.dll."
+            "libdwarfp not found. Run poc/build_libdwarf.sh or set "
+            "LIBDWARFP_PATH to libdwarfp.so/.dylib/.dll."
         )
 
     try:
@@ -160,7 +187,7 @@ _LIB = _load_library()
 
 
 def _load_errmsg():
-    dwarf_path = os.environ.get("LIBDWARF_PATH") or ctypes.util.find_library("dwarf")
+    dwarf_path = _resolve_library("dwarf", "LIBDWARF_PATH")
     if not dwarf_path:
         return None
     try:
