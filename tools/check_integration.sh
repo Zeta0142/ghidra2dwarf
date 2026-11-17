@@ -14,7 +14,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${PYGHIDRA_PYTHON:?set PYGHIDRA_PYTHON to a Python with pyghidra installed}"
 
 SRC="${1:-${ROOT}/test/binaries/test_ghidra}"
-OUT="${OUT:-/tmp/g2d-full-check}"
+OUT="${OUT:-/tmp/ghidra2dwarf-integration}"
 BINARY_NAME="$(basename "${SRC}")"
 BINARY="${OUT}/${BINARY_NAME}"
 

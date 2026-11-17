@@ -16,7 +16,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${PYGHIDRA_PYTHON:?set PYGHIDRA_PYTHON to a Python with pyghidra installed}"
 
 BINARY="${1:-${ROOT}/test/binaries/test_ghidra}"
-PROJECT_PATH="${PROJECT_PATH:-/tmp/g2d-pyghidra-project}"
+PROJECT_PATH="${PROJECT_PATH:-/tmp/ghidra2dwarf-pyghidra}"
 PROJECT_NAME="${PROJECT_NAME:-g2d_check}"
 
 "${PYGHIDRA_PYTHON}" -m pyghidra \

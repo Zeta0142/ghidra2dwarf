@@ -2,7 +2,7 @@
 
 This binding implements the producer functions needed by ghidra2dwarf.  It
 is intentionally small and targets libdwarf 2.3.x.  CPython (and therefore
-PyGhidra) drives the modern libdwarfp API without JNA or a Java wrapper.
+PyGhidra) drives the modern libdwarfp API without a Java wrapper.
 
 The binding targets libdwarf 2.3.x.  The producer API in that release uses the
 newer ``_a``/``_c`` function variants.
