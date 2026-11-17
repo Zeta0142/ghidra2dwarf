@@ -118,3 +118,11 @@ Ghidra Program
 - Stack variable locations use the same approximation as the original project.
 - Synthetic/hash variables are skipped.
 - The ELF writer is append-only and assumes a normal section-header table.
+
+## AI disclaimer
+
+Parts of this fork, including code changes, tests, documentation, and commit
+messages, were produced with AI assistance using:
+
+- **Tool:** OpenCode
+- **Model:** DeepSeek V4.1 Flash 1017
