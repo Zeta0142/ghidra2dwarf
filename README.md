@@ -11,6 +11,11 @@ More specifically it writes all decompiled functions to `${program}_dbg.c` and
 creates `${program}_dbg`, an ELF binary that can be used for source-level
 debugging.
 
+This repository is a fork of
+[cesena/ghidra2dwarf](https://github.com/cesena/ghidra2dwarf). The original
+project targets older Ghidra releases with Jython/JNA; this fork modernizes it
+for Ghidra 12.x using PyGhidra, ctypes, and a vendored libdwarf 2.3.3.
+
 ## Implementation
 
 The exporter uses:
