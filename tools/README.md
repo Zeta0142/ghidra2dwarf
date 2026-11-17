@@ -11,11 +11,12 @@ PyGhidra / CPython 3
         -> ELF
 ```
 
-## Build the vendored libdwarf / libdwarfp
+## Build the libdwarf submodule / libdwarfp
 
-libdwarf 2.3.3 is vendored under `vendor/libdwarf/`. Build it with:
+libdwarf 2.3.3 is a git submodule at `vendor/libdwarf/`. Initialize it and build:
 
 ```bash
+git submodule update --init --recursive
 tools/build_libdwarf.sh
 ```
 
@@ -117,11 +118,11 @@ resolve source lines for the recovered functions, for example:
 | `src/ghidra2dwarf.py` | PyGhidra script using ctypes/libdwarfp |
 | `src/elf.py` | Python 3 ELF section injector |
 | `tools/smoke_producer.py` | minimal DWARF producer and `objcopy` injection |
-| `tools/build_libdwarf.sh` | builds the vendored libdwarf/libdwarfp |
+| `tools/build_libdwarf.sh` | builds libdwarf/libdwarfp from the submodule |
 | `tools/ghidra_scripts/check_pyghidra.py` | PyGhidra binding smoke test |
 | `tools/check_pyghidra.sh` | headless PyGhidra binding runner |
 | `tools/check_integration.sh` | full script integration runner |
-| `vendor/libdwarf/` | vendored libdwarf 2.3.3 source (LGPL-2.1) |
+| `vendor/libdwarf/` | libdwarf 2.3.3 git submodule (LGPL-2.1) |
 
 ## Important notes
 

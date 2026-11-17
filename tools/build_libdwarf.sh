@@ -10,7 +10,8 @@ SRC="${ROOT}/vendor/libdwarf"
 BUILD="${1:-${ROOT}/build/libdwarf}"
 
 if [ ! -f "${SRC}/CMakeLists.txt" ]; then
-    echo "error: vendored libdwarf not found at ${SRC}" >&2
+    echo "error: libdwarf submodule not found at ${SRC}" >&2
+    echo "run: git submodule update --init --recursive" >&2
     exit 1
 fi
 

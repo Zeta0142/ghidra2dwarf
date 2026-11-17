@@ -14,7 +14,7 @@ debugging.
 This repository is a fork of
 [cesena/ghidra2dwarf](https://github.com/cesena/ghidra2dwarf). The original
 project targets older Ghidra releases with Jython/JNA; this fork modernizes it
-for Ghidra 12.x using PyGhidra, ctypes, and a vendored libdwarf 2.3.3.
+for Ghidra 12.x using PyGhidra, ctypes, and libdwarf 2.3.3.
 
 ## Implementation
 
@@ -23,27 +23,31 @@ The exporter uses:
 - Ghidra 12.x with **PyGhidra**
 - **ctypes** to call the native producer API
 - the modern **libdwarfp** producer API
-- a vendored libdwarf 2.3.3 under `vendor/libdwarf`
+- libdwarf 2.3.3 as a git submodule under `vendor/libdwarf`
 
 ## Requirements
 
 For a packaged release, the native libraries are already under
-`lib/<platform>/`, so no build step is needed.  For a source checkout, build
-them with `tools/build_libdwarf.sh` as described below.
+`lib/<platform>/`, so no build step is needed. For a source checkout, initialize
+the submodule and build the libraries with `tools/build_libdwarf.sh`:
+
+```bash
+git submodule update --init --recursive
+```
 
 - Ghidra 12.x with PyGhidra
 - Python 3.9+
-- CMake, a C/C++ compiler and Ninja (or Make) for the vendored libdwarf
+- CMake, a C/C++ compiler and Ninja (or Make) for the libdwarf submodule
 - Linux is currently the only tested platform (x86-64 and x86-32).
   Windows and macOS have not been tested yet.
 
-## Build the vendored libdwarf (source checkout only)
+## Build libdwarf from the submodule (source checkout only)
 
 ```bash
 ./tools/build_libdwarf.sh
 ```
 
-This builds:
+This builds libdwarf and libdwarfp from `vendor/libdwarf` into:
 
 ```text
 build/libdwarf/src/lib/libdwarf/libdwarf.so*
