@@ -11,17 +11,6 @@ More specifically it writes all decompiled functions to `${program}_dbg.c` and
 creates `${program}_dbg`, an ELF binary that can be used for source-level
 debugging.
 
-Example:
-
-![](./img/gdb.png)
-
-Inside gdb you can now use:
-
-1. `list <function>` to display the function's source code.
-2. `n` to step one source code line.
-3. `ni` to step one assembly instruction.
-4. `p variable` to print the variable's value.
-
 ## Implementation
 
 The exporter uses:
@@ -40,7 +29,8 @@ them with `tools/build_libdwarf.sh` as described below.
 - Ghidra 12.x with PyGhidra
 - Python 3.9+
 - CMake, a C/C++ compiler and Ninja (or Make) for the vendored libdwarf
-- Linux/macOS/Windows. Tested on Linux x86-64 and x86-32.
+- Linux is currently the only tested platform (x86-64 and x86-32).
+  Windows and macOS have not been tested yet.
 
 ## Build the vendored libdwarf (source checkout only)
 
@@ -101,8 +91,8 @@ Tested fixtures:
 - `test/binaries/passcode` (x86-32)
 - `test/binaries/rsa` (x86-64)
 
-All produced `.debug_info`, `.debug_line` and `.debug_abbrev`; gdb can resolve
-source lines for the recovered functions.
+All produced `.debug_info`, `.debug_line` and `.debug_abbrev`, including
+source line information for the recovered functions.
 
 ## How it works
 
