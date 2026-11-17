@@ -70,7 +70,7 @@ build/libdwarf/src/lib/libdwarfp/libdwarfp.so.2.3.3
 On macOS/Windows the names will be `libdwarf.dylib` / `libdwarfp.dylib` and
 `libdwarf.dll` / `libdwarfp.dll`.
 
-`poc/libdwarfp.py` automatically looks in `build/libdwarf/`, so no environment
+`src/libdwarfp.py` automatically looks in `build/libdwarf/`, so no environment
 variables are needed after this.  `LIBDWARFP_PATH` and `LIBDWARF_PATH` still
 override the search when needed.
 
@@ -113,7 +113,7 @@ headless, with Python 3.14.8:
 python: 3.14.8
 ctypes: /usr/lib64/python3.14/ctypes/__init__.py
 currentProgram: test_ghidra - .ProgramDB
-libdwarfp module: .../poc/libdwarfp.py
+libdwarfp module: .../src/libdwarfp.py
 sections: {'.debug_abbrev': 55, '.debug_info': 81, '.debug_line': 53}
 RESULT: OK
 ```
@@ -140,11 +140,36 @@ export GHIDRA_MCP_ALLOW_SCRIPTS=1
 Script execution is disabled by default in current ghidra-mcp versions.  The
 headless PyGhidra command above does not need MCP script execution.
 
+## Full script smoke test
+
+`src/ghidra2dwarf.py` has now been ported to PyGhidra + ctypes.  It was tested
+headlessly on the three existing fixtures:
+
+```text
+test_ghidra  x86-64  -> /tmp/g2d-full2/test_ghidra_dbg
+passcode     x86-32  -> /tmp/g2d-passcode/passcode_dbg
+rsa          x86-64  -> /tmp/g2d-rsa/rsa_dbg
+```
+
+All three produced `.debug_info`, `.debug_line`, and `.debug_abbrev`; `gdb`
+can resolve source lines for the recovered functions, for example:
+
+```text
+(gdb) list login
+(gdb) list FUN_001011e2
+(gdb) list RSA_private_encrypt
+```
+
+`src/elf.py` was also ported to Python 3 and is used by the script directly, so
+the full integration no longer needs `objcopy`.
+
 ## Files
 
 | Path | Purpose |
 |---|---|
-| `poc/libdwarfp.py` | ctypes prototypes + `DwarfProducer` wrapper |
+| `src/libdwarfp.py` | ctypes prototypes + `DwarfProducer` wrapper |
+| `src/ghidra2dwarf.py` | PyGhidra script using ctypes/libdwarfp |
+| `src/elf.py` | Python 3 ELF section injector |
 | `poc/make_dwarf.py` | minimal DWARF producer and `objcopy` injection |
 | `poc/build_libdwarf.sh` | builds the vendored libdwarf/libdwarfp |
 | `poc/ghidra_scripts/pyghidra_ctypes_check.py` | PyGhidra smoke test |

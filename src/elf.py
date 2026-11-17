@@ -108,7 +108,7 @@ class Elf:
 		# unpack_from doesn't work with jython
 		# return cls(s.unpack_from(self.bytes, off), file_offset=off)
 		bb = self.bytes[off:off+s.size]
-		return cls(s.unpack(str(bb)), file_offset=off)
+		return cls(s.unpack(bytes(bb)), file_offset=off)
 
 	def _export_struct(self, val, off):
 		s = self._get_struct(val.__class__)
@@ -139,7 +139,8 @@ class Elf:
 			self.section_headers.append(self._dump_struct(ElfSectionHeader, h.shoff + i * h.shentsize))
 		self.section_names = self.extract_section(self.section_headers[h.shstrndx])
 		for s in self.section_headers:
-			s.name = self.section_names[s.name_offset:self.section_names.find('\x00', s.name_offset)]
+			end = self.section_names.find(b'\x00', s.name_offset)
+			s.name = bytes(self.section_names[s.name_offset:end]).decode('latin1')
 		return self.section_headers
 
 	def extract_section(self, section_header):
@@ -157,10 +158,10 @@ class Elf:
 		for name, body in self.new_sections:
 			try:
 				s = next(s for s in section_headers if s.name == name)
-			except:
+			except StopIteration:
 				added_sections = True
 				name_off = len(self.section_names)
-				self.section_names += name + '\x00'
+				self.section_names += name.encode('utf-8') + b'\x00'
 				s = ElfSectionHeader([name_off, 1, 0, 0, -1, -1, 0, 0, 1, 0], file_offset=-1)
 				s.name = name
 				section_headers.append(s)
@@ -176,7 +177,7 @@ class Elf:
 			self.bytes += self.section_names
 			h.shoff = len(self.bytes)
 			h.shnum = len(section_headers)
-			self.bytes += '\x00' * h.shentsize * h.shnum
+			self.bytes += b'\x00' * h.shentsize * h.shnum
 
 		self._export_struct(h, self.header_off)
 		for i, s in enumerate(section_headers):
@@ -194,27 +195,36 @@ def add_sections_to_elf(from_file, to_file, sections):
 		e.add_section(name, s)
 	out = e.generate_updated_elf()
 	with open(to_file, 'wb') as f:
-		f.write(out)
+		f.write(bytes(out))
 
 
 class DumbEnumValue:
 	def __init__(self, name, code, desc): self.name, self.code, self.desc = name, code, desc
 	def __repr__(self): return '%s(%r, %r)' % (self.name, self.code, self.desc)
 
-class DumbEnum(object):
-	class __metaclass__(type):
-		def __init__(cls, *args):
-			cls._bycode = {}
-			for n in dir(cls):
-				if n[0] != '_':
-					v = DumbEnumValue(n, *getattr(cls, n))
-					setattr(cls, n, v)
-					cls._bycode[v.code] = v
-		def __getitem__(cls, idx):
-			try:
-				return cls._bycode[idx]
-			except KeyError:
-				return DumbEnumValue("%s_%s" % (cls.__name__, idx), idx, "Unknown entry %d" % idx)
+class DumbEnumMeta(type):
+	def __init__(cls, name, bases, namespace):
+		super().__init__(name, bases, namespace)
+		cls._bycode = {}
+		for n in dir(cls):
+			if n.startswith('_'):
+				continue
+			v = getattr(cls, n)
+			if isinstance(v, tuple):
+				v = DumbEnumValue(n, *v)
+				setattr(cls, n, v)
+			if isinstance(v, DumbEnumValue):
+				cls._bycode[v.code] = v
+
+	def __getitem__(cls, idx):
+		try:
+			return cls._bycode[idx]
+		except KeyError:
+			return DumbEnumValue("%s_%s" % (cls.__name__, idx), idx, "Unknown entry %d" % idx)
+
+
+class DumbEnum(metaclass=DumbEnumMeta):
+	pass
 
 
 # All the constants are parsed from https://github.com/slorquet/elffile2/blob/master/elffile.py

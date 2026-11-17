@@ -18,9 +18,9 @@ try:
     print("executable:", currentProgram.getExecutablePath())
 
     repo = "/home/z142/Dev/ghidra2dwarf"
-    poc = os.path.join(repo, "poc")
-    if poc not in sys.path:
-        sys.path.insert(0, poc)
+    for path in (os.path.join(repo, "src"), os.path.join(repo, "poc")):
+        if path not in sys.path:
+            sys.path.insert(0, path)
 
     import libdwarfp
     from make_dwarf import build_sections

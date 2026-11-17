@@ -1,172 +1,151 @@
 # Ghidra2Dwarf
 # @author sen, meowmeowxw
 # @category PWN
+# @runtime PyGhidra
 # @keybinding
 # @menupath
 # @toolbar
 
-try:
-    from ghidra_builtins import *
-except:
-    pass
-
 import os
-import sys
 
 from ghidra.app.decompiler import DecompInterface, DecompileOptions
-from ghidra.app.util.bin.format.elf import ElfSymbolTable
 from ghidra.app.decompiler.component import DecompilerUtils
-from ghidra.program.database.data import PointerDB
-from ghidra.program.model.symbol import SymbolTable, SymbolType
-from ghidra.program.model.data import Pointer, Structure, DefaultDataType, BuiltInDataType, BooleanDataType, CharDataType, AbstractIntegerDataType, AbstractFloatDataType, AbstractComplexDataType, ArrayDataType, Array, Enum
-from ghidra.app.util.bin.format.dwarf4.next import DWARFRegisterMappingsManager
-from ghidra.util.task import ConsoleTaskMonitor
+from ghidra.app.util.bin.format.dwarf import DWARFRegisterMappingsManager
 from ghidra.app.util.opinion import ElfLoader
 from ghidra.framework import OperatingSystem
+from ghidra.program.model.data import (
+    AbstractComplexDataType,
+    AbstractFloatDataType,
+    AbstractIntegerDataType,
+    Array,
+    BooleanDataType,
+    BuiltInDataType,
+    CharDataType,
+    DefaultDataType,
+    Enum,
+    Pointer,
+    Structure,
+)
+from ghidra.program.model.symbol import SymbolType
 
+import libdwarfp as dw
 from elf import add_sections_to_elf
-
-# we have to load libdwarf.jar dynamically by adding it to the path for some reason
-script_path = sourceFile.absolutePath
-libdwarf_jar_path = os.path.join(os.path.dirname(script_path), "libdwarf.jar")
-sys.path.append(libdwarf_jar_path)
-
-from libdwarf import LibdwarfLibrary
-from com.sun.jna.ptr import PointerByReference, LongByReference
-from com.sun.jna import Memory
-from java.nio import ByteBuffer
+from libdwarfp import DwarfProducer
 
 
-curr = getCurrentProgram()
-if curr.executableFormat != ElfLoader.ELF_NAME:
-    print "Only ELF binaries are supported"
-    exit(1)
-image_base = curr.imageBase.offset
-is_pie = curr.relocationTable.relocatable
+curr = currentProgram
+if curr is None:
+    raise RuntimeError("No current program")
+
+if curr.getExecutableFormat() != ElfLoader.ELF_NAME:
+    print("Only ELF binaries are supported")
+    raise SystemExit(1)
+
+image_base = curr.getImageBase().getOffset()
 orig_base = ElfLoader.getElfOriginalImageBase(curr)
-# this breaks stuff, we changed approach and started using get_real_address
-# curr.setImageBase(toAddr(orig_base), False)
+orig_base = int(orig_base) if orig_base is not None else 0
 
 
 def get_real_address(addr):
-    return addr.offset - image_base + orig_base
-
-
-def get_libdwarf_err():
-    derr = Dwarf_Error(err.value)
-    print derr
-    return dwarf_errmsg(derr)
+    """Convert a Ghidra address to the address in the original ELF."""
+    return addr.getOffset() - image_base + orig_base
 
 
 record = {}
-exe_path = curr.executablePath
-# workaround ghidra being dumb and putting a slash in front of Windows paths
-# this should be fixed in the next release as discussed here:
-# https://github.com/NationalSecurityAgency/ghidra/pull/2220
-if OperatingSystem.CURRENT_OPERATING_SYSTEM == OperatingSystem.WINDOWS and exe_path[0] == "/":
-    exe_path = exe_path[1:]
-
-while not os.path.isfile(exe_path):
-    print "I couldn't find the original file at path %s. Please specify its path:" % exe_path
-    exe_path = askFile("Original binary path", "Open").path
-    curr.executablePath = exe_path
-    print "Changed binary path to %s." % exe_path
-
-out_path = exe_path + "_dbg"
-decompiled_c_path = exe_path + "_dbg.c"
 decomp_lines = []
-
-ERR_IS_NOT_OK = lambda e: e != DW_DLV_OK
-ERR_IS_NOCOUNT = lambda e: e == DW_DLV_NOCOUNT
-ERR_IS_BADADDR = lambda e: e is None or e == DW_DLV_BADADDR or (hasattr(e, "pointer") and e.pointer == DW_DLV_BADADDR)
-DWARF_FUNCTIONS = {
-    'dwarf_producer_init': ERR_IS_NOT_OK,
-    'dwarf_pro_set_default_string_form': ERR_IS_NOT_OK,
-    'dwarf_transform_to_disk_form': ERR_IS_NOCOUNT,
-    'dwarf_get_section_bytes': ERR_IS_BADADDR,
-    'dwarf_producer_finish_a': ERR_IS_NOT_OK,
-    'dwarf_add_AT_targ_address': ERR_IS_BADADDR,
-    'dwarf_add_AT_unsigned_const': ERR_IS_BADADDR,
-    'dwarf_add_AT_reference': ERR_IS_BADADDR,
-    'dwarf_add_AT_location_expr': ERR_IS_BADADDR,
-    'dwarf_add_AT_string': ERR_IS_BADADDR,
-    'dwarf_add_AT_comp_dir': ERR_IS_BADADDR,
-    'dwarf_add_AT_name': ERR_IS_BADADDR,
-    'dwarf_add_directory_decl': ERR_IS_NOCOUNT,
-    'dwarf_add_file_decl': ERR_IS_NOCOUNT,
-    'dwarf_add_line_entry': ERR_IS_NOCOUNT,
-    'dwarf_lne_end_sequence_a': ERR_IS_NOCOUNT,
-    'dwarf_new_die': ERR_IS_BADADDR,
-    'dwarf_add_die_to_debug_a': ERR_IS_NOT_OK,
-    'dwarf_new_expr': ERR_IS_BADADDR,
-    'dwarf_add_expr_gen': ERR_IS_NOCOUNT,
-    'dwarf_add_expr_addr_b': ERR_IS_NOCOUNT
-}
+register_mappings = {}
+decompiler = None
 
 
-def generate_fun_wrapper(name, fun):
-    def wrapper(*args):
-        r = fun(*(args + (err,)))
-        error_check = DWARF_FUNCTIONS[name]
-        if error_check(r):
-            # TODO: dwarf_errmsg (hence get_libdwarf_err) is broken for some reason
-            # assert False, "%s failed: %s" % (name, get_libdwarf_err())
-            assert False, "%s failed. Returned %r" % (name, r)
-        return r
-
-    return wrapper
+def iter_java(iterator):
+    """Iterate a Java Iterator from Python."""
+    while iterator.hasNext():
+        yield iterator.next()
 
 
-l = LibdwarfLibrary.INSTANCE
-g = globals()
-for name in LibdwarfLibrary.__dict__.keys():
-    if name in DWARF_FUNCTIONS:
-        fun = getattr(l, name)
-        g[name] = generate_fun_wrapper(name, fun)
-    else:
-        g[name] = getattr(l, name)
+def get_output_paths():
+    exe_path = curr.getExecutablePath()
+
+    # Ghidra on Windows may prepend a slash to the path.
+    if (
+        OperatingSystem.CURRENT_OPERATING_SYSTEM == OperatingSystem.WINDOWS
+        and exe_path
+        and exe_path.startswith("/")
+    ):
+        exe_path = exe_path[1:]
+
+    while not exe_path or not os.path.isfile(exe_path):
+        print(
+            "I couldn't find the original file at path %s. "
+            "Please specify its path:" % exe_path
+        )
+        chosen = askFile("Original binary path", "Open")
+        exe_path = chosen.getAbsolutePath()
+        curr.setExecutablePath(exe_path)
+        print("Changed binary path to %s." % exe_path)
+
+    return exe_path, exe_path + "_dbg", exe_path + "_dbg.c"
 
 
-def add_debug_info():
-    dwarf_pro_set_default_string_form(dbg, DW_FORM_string)
-    cu = dwarf_new_die(dbg, DW_TAG_compile_unit, None, None, None, None)
+def add_debug_info(producer):
+    producer.set_default_string_form()
 
-    c_file_name = os.path.split(decompiled_c_path)[1]
-    dwarf_add_AT_name(cu, c_file_name)
-    dir_index = dwarf_add_directory_decl(dbg, ".")
-    file_index = dwarf_add_file_decl(dbg, c_file_name, dir_index, 0, 0)
-    dwarf_add_AT_comp_dir(cu, ".")
+    cu = producer.new_die(dw.DW_TAG_compile_unit)
 
-    funcs = get_functions()
+    c_file_name = os.path.basename(decompiled_c_path)
+    producer.add_name(cu, c_file_name)
+    dir_index = producer.add_directory_decl(".")
+    file_index = producer.add_file_decl(c_file_name, dir_index, 0, 0)
+    producer.add_comp_dir(cu, ".")
+
+    funcs = list(get_functions())
     addr_to_line = {}
     max_addr = 0
-    for i, f in enumerate(funcs):
-        print "Decompiling function %d: %s" % (i, f)
-        die, func_addrs = add_function(cu, f, file_index)
+
+    for i, func in enumerate(funcs):
+        print("Decompiling function %d: %s" % (i, func.getName()))
+        _die, func_addrs = add_function(producer, cu, func, file_index)
         addr_to_line.update(func_addrs)
-        max_addr = max(max_addr, get_function_range(f)[1] + 1)
+        max_addr = max(max_addr, get_function_range(func)[1] + 1)
 
     for addr in sorted(addr_to_line):
-        dwarf_add_line_entry(dbg, file_index, addr, addr_to_line[addr], 0, True, False)
+        producer.add_line_entry(file_index, addr, addr_to_line[addr])
         max_addr = max(max_addr, addr + 1)
 
-    dwarf_lne_end_sequence_a(dbg, max_addr)
+    producer.end_sequence(max_addr)
 
-    dwarf_add_die_to_debug_a(dbg, cu)
-    add_global_variables(cu)
-    add_structures(cu)
+    producer.add_die_to_debug(cu)
+    add_global_variables(producer, cu)
+    add_structures(producer, cu)
+
+
+def get_isa_name(pointer64):
+    processor = str(curr.getLanguage().getProcessor()).lower()
+    if "aarch64" in processor or "arm64" in processor:
+        return "arm64"
+    if "arm" in processor:
+        return "arm"
+    if "x86" in processor or "i386" in processor:
+        return "x86_64" if pointer64 else "x86"
+    if "mips" in processor:
+        return "mips"
+    if "ppc" in processor or "powerpc" in processor:
+        return "ppc64" if pointer64 else "ppc"
+    if "sparc" in processor:
+        return "sparc"
+    return "x86_64" if pointer64 else "x86"
 
 
 def generate_register_mappings():
-    d2g_mapping = DWARFRegisterMappingsManager.getMappingForLang(curr.language)
+    d2g_mapping = DWARFRegisterMappingsManager.getMappingForLang(curr.getLanguage())
     g2d_mapping = {}
-    for i in range(DW_FRAME_LAST_REG_NUM):
+
+    for i in range(dw.DW_FRAME_LAST_REG_NUM):
         reg = d2g_mapping.getGhidraReg(i)
         if reg:
-            g2d_mapping[reg.offset] = i
-    stack_reg_num = d2g_mapping.DWARFStackPointerRegNum
-    stack_reg_dwarf = globals()["DW_OP_breg%d" % stack_reg_num]
-    return g2d_mapping, stack_reg_dwarf
+            g2d_mapping[reg.getOffset()] = i
+
+    return g2d_mapping
 
 
 def generate_decomp_interface():
@@ -177,12 +156,7 @@ def generate_decomp_interface():
     decompiler.toggleCCode(True)
     decompiler.toggleSyntaxTree(True)
 
-    # - decompile -- The main decompiler action
-    # - normalize -- Decompilation tuned for normalization
-    # - jumptable -- Simplify just enough to recover a jump-table
-    # - paramid   -- Simplify enough to recover function parameters
-    # - register  -- Perform one analysis pass on registers, without stack variables
-    # - firstpass -- Construct the initial raw syntax tree, with no simplification
+    # decompile, normalize, jumptable, paramid, register, firstpass
     decompiler.setSimplificationStyle("decompile")
     decompiler.openProgram(curr)
     return decompiler
@@ -193,153 +167,208 @@ def get_decompiled_function(func):
 
 
 def get_decompiled_variables(decomp):
-    hf = decomp.highFunction
-    symbolMap = hf.localSymbolMap
-    params = [symbolMap.getParam(i).symbol for i in range(symbolMap.numParams) if symbolMap.getParam(i)]
-    for s in symbolMap.symbols:
-        yield s.name, s.dataType, s.PCAddress, s.storage, s in params
+    hf = decomp.getHighFunction()
+    symbol_map = hf.getLocalSymbolMap()
+
+    params = []
+    for i in range(symbol_map.getNumParams()):
+        param = symbol_map.getParam(i)
+        if param:
+            params.append(param.getSymbol())
+
+    for symbol in iter_java(symbol_map.getSymbols()):
+        yield (
+            symbol.getName(),
+            symbol.getDataType(),
+            symbol.getPCAddress(),
+            symbol.getStorage(),
+            symbol in params,
+        )
 
 
-def add_decompiler_func_info(cu, func_die, func, decomp, file_index, func_line):
-    # https://ghidra.re/ghidra_docs/api/ghidra/app/decompiler/DecompileResults.html
-    # print func.allVariables
+def add_decompiler_func_info(
+    producer, cu, func_die, func, decomp, file_index, func_line
+):
     for name, datatype, addr, storage, is_param in get_decompiled_variables(decomp):
-        add_variable(cu, func_die, name, datatype, addr, storage, is_parameter=is_param)
+        add_variable(
+            producer,
+            cu,
+            func_die,
+            name,
+            datatype,
+            addr,
+            storage,
+            is_parameter=is_param,
+        )
 
-    cmarkup = decomp.CCodeMarkup
-    # TODO: implement our own pretty printer?
-    # https://github.com/NationalSecurityAgency/ghidra/blob/master/Ghidra/Features/Decompiler/src/main/java/ghidra/app/decompiler/PrettyPrinter.java
+    cmarkup = decomp.getCCodeMarkup()
     lines = DecompilerUtils.toLines(cmarkup)
     addr_to_line = {}
-    for l in lines:
-        for token in l.allTokens:
-            if token.minAddress:
-                addr_to_line[get_real_address(token.minAddress)] = l.lineNumber + func_line - 1
+
+    for line in lines:
+        for token in line.getAllTokens():
+            min_address = token.getMinAddress()
+            if min_address:
+                addr_to_line[get_real_address(min_address)] = (
+                    line.getLineNumber() + func_line - 1
+                )
 
     return addr_to_line
 
 
 def get_functions():
-    fm = curr.functionManager
-    funcs = fm.getFunctions(True)
-    return funcs
+    return iter_java(curr.getFunctionManager().getFunctions(True))
 
 
 def get_function_range(func):
-    return get_real_address(func.entryPoint), get_real_address(func.body.maxAddress)
+    return (
+        get_real_address(func.getEntryPoint()),
+        get_real_address(func.getBody().getMaxAddress()),
+    )
 
 
-def is_function_executable(func):
-    f_start, f_end = get_function_range(func)
-    # Check for functions inside executable segments
-    for s in curr.memory.executeSet.addressRanges:
-        if f_start >= get_real_address(s.minAddress) and f_end <= get_real_address(s.maxAddress):
-            return True
-    return False
+def add_global_variables(producer, cu):
+    for symbol in iter_java(curr.getSymbolTable().getAllSymbols(True)):
+        if symbol.getSymbolType() not in (
+            SymbolType.LABEL,
+            SymbolType.GLOBAL,
+            SymbolType.GLOBAL_VAR,
+        ):
+            continue
+
+        data = curr.getListing().getDataAt(symbol.getAddress())
+        if not data:
+            continue
+
+        die = producer.new_die(dw.DW_TAG_variable, parent=cu)
+        var_type_die = add_type(producer, cu, data.getDataType())
+
+        producer.add_name(die, symbol.getName())
+        producer.add_reference(die, dw.DW_AT_type, var_type_die)
+
+        expr = producer.new_expr()
+        producer.add_expr_addr(expr, get_real_address(data.getAddress()))
+        producer.add_location_expr(die, dw.DW_AT_location, expr)
 
 
-def add_global_variables(cu):
-    for s in curr.symbolTable.getAllSymbols(True):
-        # TODO: What is the difference between GLOBAL and GLOBAL_VAR ?
-        if s.symbolType in [SymbolType.LABEL, SymbolType.GLOBAL, SymbolType.GLOBAL_VAR]:
-            t = curr.listing.getDataAt(s.address)
-            if t:
-                die = dwarf_new_die(dbg, DW_TAG_variable, cu, None, None, None)
-                var_type_die = add_type(cu, t.dataType)
-
-                dwarf_add_AT_name(die, s.name)
-                dwarf_add_AT_reference(dbg, die, DW_AT_type, var_type_die)
-
-                loc_expr = dwarf_new_expr(dbg)
-                dwarf_add_expr_addr_b(loc_expr, get_real_address(t.address), 0)
-                dwarf_add_AT_location_expr(dbg, die, DW_AT_location, loc_expr)
+def add_structures(producer, cu):
+    for structure in iter_java(curr.getDataTypeManager().getAllStructures()):
+        add_type(producer, cu, structure)
 
 
-def add_structures(cu):
-    for s in curr.dataTypeManager.allStructures:
-        add_type(cu, s)
-
-
-def add_variable(cu, func_die, name, datatype, addr, storage, is_parameter=False):
-    # TODO: there could be more than one varnode, what does it even mean?
-    varnode = storage.firstVarnode
-    # It looks like sometimes ghidra creates a fake/temp variable without any varnodes, it should be ok to ignore it
+def add_variable(
+    producer,
+    cu,
+    func_die,
+    name,
+    datatype,
+    addr,
+    storage,
+    is_parameter=False,
+):
+    # There may be more than one varnode; use the first one as the original
+    # implementation does.
+    varnode = storage.getFirstVarnode()
     if varnode is None:
         return None
+
     varnode_addr = varnode.getAddress()
 
-    # TODO: add varaible starting from addr
-    tag = DW_TAG_variable
-    if is_parameter:
-        tag = DW_TAG_formal_parameter
-    var_die = dwarf_new_die(dbg, tag, func_die, None, None, None)
-    type_die = add_type(cu, datatype)
+    tag = dw.DW_TAG_formal_parameter if is_parameter else dw.DW_TAG_variable
+    var_die = producer.new_die(tag, parent=func_die)
+    type_die = add_type(producer, cu, datatype)
 
-    dwarf_add_AT_reference(dbg, var_die, DW_AT_type, type_die)
-    dwarf_add_AT_name(var_die, name)
+    producer.add_reference(var_die, dw.DW_AT_type, type_die)
+    producer.add_name(var_die, name)
 
-    expr = dwarf_new_expr(dbg)
+    expr = producer.new_expr()
+    has_location = False
 
     try:
         if varnode_addr.isRegisterAddress():
-            reg = curr.getRegister(varnode_addr, varnode.size)
-            reg_dwarf = register_mappings[reg.offset]
-            dwarf_add_expr_gen(expr, DW_OP_regx, reg_dwarf, 0)
-        elif varnode_addr.isStackAddress():
-            # TODO: properly get register size and figure out if this is always correct
-            dwarf_add_expr_gen(expr, DW_OP_fbreg, varnode_addr.offset - varnode_addr.pointerSize, 0)
-        elif varnode_addr.isMemoryAddress():
-            print name, varnode
-            # TODO: globals?
-            assert False, "Memory address"
-        elif varnode_addr.isHashAddress():
-            # TODO: ghidra synthetic vars.
-            # It however often can be linked to a register(/stack off?) if looking at the disass,
-            # find, if possible, how to get it programmatically.
-            # This info is likely lost when generating the decompiled code. :(
-            # print 'hash', varnode, curr.getRegister(varnode_addr, varnode.size)
-            pass
-        else:
-            assert False, ("ERR var:", varnode)
+            reg = curr.getRegister(varnode_addr, varnode.getSize())
+            if reg is None:
+                raise RuntimeError("no Ghidra register for %s" % varnode_addr)
 
-        dwarf_add_AT_location_expr(dbg, var_die, DW_AT_location, expr)
-    except:
+            reg_dwarf = register_mappings.get(reg.getOffset())
+            if reg_dwarf is None:
+                raise RuntimeError("no DWARF mapping for register %s" % reg)
+
+            producer.add_expr_gen(expr, dw.DW_OP_regx, reg_dwarf)
+            has_location = True
+
+        elif varnode_addr.isStackAddress():
+            producer.add_expr_gen(
+                expr,
+                dw.DW_OP_fbreg,
+                varnode_addr.getOffset() - varnode_addr.getPointerSize(),
+            )
+            has_location = True
+
+        elif varnode_addr.isMemoryAddress():
+            print("warning: memory variable has no location: %s %s" % (name, varnode))
+            return var_die
+
+        elif varnode_addr.isHashAddress():
+            # Ghidra synthetic variable; the original implementation skips it.
+            return var_die
+
+        else:
+            print("warning: unsupported variable location: %s %s" % (name, varnode))
+            return var_die
+
+    except Exception as exc:
+        print("warning: could not emit location for %s: %s" % (name, exc))
         return var_die
+
+    if has_location:
+        producer.add_location_expr(var_die, dw.DW_AT_location, expr)
+
     return var_die
 
 
-def add_function(cu, func, file_index):
-    die = dwarf_new_die(dbg, DW_TAG_subprogram, cu, None, None, None)
-    loc_expr = dwarf_new_expr(dbg)
-    dwarf_add_expr_gen(loc_expr, DW_OP_call_frame_cfa, 0, 0)
-    dwarf_add_AT_location_expr(dbg, die, DW_AT_frame_base, loc_expr)
-    f_name = func.name
-    dwarf_add_AT_name(die, f_name)
-    dwarf_add_AT_string(dbg, die, DW_AT_linkage_name, f_name)
+def add_function(producer, cu, func, file_index):
+    die = producer.new_die(dw.DW_TAG_subprogram, parent=cu)
 
-    # TODO: Check for multiple ranges
+    frame_base = producer.new_expr()
+    producer.add_expr_gen(frame_base, dw.DW_OP_call_frame_cfa)
+    producer.add_location_expr(die, dw.DW_AT_frame_base, frame_base)
+
+    f_name = func.getName()
+    producer.add_name(die, f_name)
+    producer.add_string(die, dw.DW_AT_linkage_name, f_name)
+
+    return_type = func.getReturnType()
+    if return_type:
+        ret_type_die = add_type(producer, cu, return_type)
+        producer.add_reference(die, dw.DW_AT_type, ret_type_die)
+
     f_start, f_end = get_function_range(func)
-
-    ret_type_die = add_type(cu, func.returnType)
-    dwarf_add_AT_reference(dbg, die, DW_AT_type, ret_type_die)
-
-    dwarf_add_AT_targ_address(dbg, die, DW_AT_low_pc, f_start, 0)
-    dwarf_add_AT_targ_address(dbg, die, DW_AT_high_pc, f_end + 1, 0)
+    producer.add_targ_address(die, dw.DW_AT_low_pc, f_start)
+    producer.add_targ_address(die, dw.DW_AT_high_pc, f_end + 1)
 
     func_line = len(decomp_lines) + 1
-
     res = get_decompiled_function(func)
-    if res.decompiledFunction is None:
-        d = "/* Error decompiling %s: %s */" % (func.getName(True), res.errorMessage)
+    decompiled_function = res.getDecompiledFunction()
+
+    if decompiled_function is None:
+        error = res.getErrorMessage() or "unknown decompiler error"
+        d = "/* Error decompiling %s: %s */" % (func.getName(), error)
     else:
-        d = res.decompiledFunction.c
+        d = decompiled_function.getC()
+
     decomp_lines.extend(d.split("\n"))
 
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_file, file_index)
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_decl_line, func_line + 1)
+    producer.add_unsigned_const(die, dw.DW_AT_decl_file, file_index)
+    producer.add_unsigned_const(die, dw.DW_AT_decl_line, func_line + 1)
+
     addr_to_line = {f_start: func_line + 1}
-    if res.decompiledFunction is not None:
-        addr_to_line.update(add_decompiler_func_info(cu, die, func, res, file_index, func_line))
+    if decompiled_function is not None:
+        addr_to_line.update(
+            add_decompiler_func_info(
+                producer, cu, die, func, res, file_index, func_line
+            )
+        )
 
     return die, addr_to_line
 
@@ -349,176 +378,177 @@ def write_source():
         src.write("\n".join(decomp_lines).encode("utf8"))
 
 
-def add_type(cu, t):
-    if t.name in record:
-        return record[t.name]
+def _type_key(datatype):
+    name = datatype.getName()
+    return name if name else "<anonymous:%s>" % id(datatype)
 
-    if isinstance(t, Pointer):
-        return add_ptr_type(cu, t)
-    elif isinstance(t, Enum):
-        return add_enum_type(cu, t)
-    elif isinstance(t, Array):
-        return add_array_type(cu, t)
-    elif isinstance(t, Structure):
-        return add_struct_type(cu, t)
-    elif isinstance(t, (BuiltInDataType, DefaultDataType)):
-        return add_default_type(cu, t)
+
+def add_type(producer, cu, datatype):
+    if datatype is None:
+        raise RuntimeError("cannot add a null datatype")
+
+    key = _type_key(datatype)
+    if key in record:
+        return record[key]
+
+    if isinstance(datatype, Pointer):
+        return add_ptr_type(producer, cu, datatype, key)
+    if isinstance(datatype, Enum):
+        return add_enum_type(producer, cu, datatype, key)
+    if isinstance(datatype, Array):
+        return add_array_type(producer, cu, datatype, key)
+    if isinstance(datatype, Structure):
+        return add_struct_type(producer, cu, datatype, key)
+    if isinstance(datatype, (BuiltInDataType, DefaultDataType)):
+        return add_default_type(producer, cu, datatype, key)
+
+    return add_default_type(producer, cu, datatype, key)
+
+
+def add_default_type(producer, cu, datatype, key):
+    die = producer.new_die(dw.DW_TAG_base_type, parent=cu)
+    record[key] = die
+
+    producer.add_name(die, datatype.getName() or "<anonymous>")
+    producer.add_unsigned_const(die, dw.DW_AT_byte_size, datatype.getLength())
+
+    if isinstance(datatype, BooleanDataType):
+        encoding = dw.DW_ATE_boolean
+    elif isinstance(datatype, CharDataType):
+        is_signed = (
+            datatype.getDataTypeManager()
+            .getDataOrganization()
+            .isSignedChar()
+        )
+        encoding = dw.DW_ATE_signed_char if is_signed else dw.DW_ATE_unsigned_char
+    elif isinstance(datatype, AbstractIntegerDataType):
+        encoding = dw.DW_ATE_signed if datatype.isSigned() else dw.DW_ATE_unsigned
+    elif isinstance(datatype, AbstractFloatDataType):
+        encoding = dw.DW_ATE_float
+    elif isinstance(datatype, AbstractComplexDataType):
+        encoding = dw.DW_ATE_complex_float
     else:
-        try:
-            return add_default_type(cu, t)
-        except:
-            assert False, ("ERR type:", type(t), t)
-        return None
+        encoding = dw.DW_ATE_unsigned
 
-
-def add_default_type(cu, t):
-    die = dwarf_new_die(dbg, DW_TAG_base_type, cu, None, None, None)
-    record[t.name] = die
-    dwarf_add_AT_name(die, t.name)
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, t.length)
-
-    # type encoding dwarfstd.org/doc/DWARF4.pdf#page=91
-    if isinstance(t, BooleanDataType):
-        encoding = DW_ATE_boolean
-    elif isinstance(t, CharDataType):
-        is_char_signed = t.dataTypeManager.dataOrganization.signedChar
-        encoding = DW_ATE_signed_char if is_char_signed else DW_ATE_unsigned_char
-    elif isinstance(t, AbstractIntegerDataType):
-        encoding = DW_ATE_signed if t.signed else DW_ATE_unsigned
-    elif isinstance(t, AbstractFloatDataType):
-        encoding = DW_ATE_float
-    elif isinstance(t, AbstractComplexDataType):
-        encoding = DW_ATE_complex_float
-    else:
-        # if I forgot a type it's probably ok for it to be encoded as an unsigned integer
-        encoding = DW_ATE_unsigned
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_encoding, encoding)
+    producer.add_unsigned_const(die, dw.DW_AT_encoding, encoding)
     return die
 
 
-def add_ptr_type(cu, t):
-    die = dwarf_new_die(dbg, DW_TAG_pointer_type, cu, None, None, None)
-    record[t.name] = die
+def add_ptr_type(producer, cu, datatype, key):
+    die = producer.new_die(dw.DW_TAG_pointer_type, parent=cu)
+    record[key] = die
 
-    # Some pointer don't have childs
-    if t.dataType:
-        child_die = add_type(cu, t.dataType)
-        dwarf_add_AT_reference(dbg, die, DW_AT_type, child_die)
+    child = datatype.getDataType()
+    if child is not None:
+        child_die = add_type(producer, cu, child)
+        producer.add_reference(die, dw.DW_AT_type, child_die)
 
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, t.length)
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_encoding, DW_ATE_address)
+    producer.add_unsigned_const(die, dw.DW_AT_byte_size, datatype.getLength())
+    producer.add_unsigned_const(die, dw.DW_AT_encoding, dw.DW_ATE_address)
     return die
 
 
-def add_enum_type(cu, t):
-    die = dwarf_new_die(dbg, DW_TAG_enumeration_type, cu, None, None, None)
-    record[t.name] = die
+def add_enum_type(producer, cu, datatype, key):
+    die = producer.new_die(dw.DW_TAG_enumeration_type, parent=cu)
+    record[key] = die
 
-    dwarf_add_AT_name(die, t.name)
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, t.length)
+    producer.add_name(die, datatype.getName() or "<anonymous>")
+    producer.add_unsigned_const(die, dw.DW_AT_byte_size, datatype.getLength())
 
-    int_type = AbstractIntegerDataType.getUnsignedDataType(t.length, curr.dataTypeManager)
-    child_type_die = add_type(cu, int_type)
-    dwarf_add_AT_reference(dbg, die, DW_AT_type, child_type_die)
+    int_type = AbstractIntegerDataType.getUnsignedDataType(
+        datatype.getLength(), curr.getDataTypeManager()
+    )
+    child_type_die = add_type(producer, cu, int_type)
+    producer.add_reference(die, dw.DW_AT_type, child_type_die)
 
-    # In this way we iterate the values in order
-    for value in t.values:
-        name = t.getName(value)
-        child_die = dwarf_new_die(dbg, DW_TAG_enumerator, die, None, None, None)
-        dwarf_add_AT_name(child_die, name)
-        dwarf_add_AT_unsigned_const(dbg, child_die, DW_AT_const_value, value)
+    values = datatype.getValues()
+    for i in range(len(values)):
+        value = values[i]
+        name = datatype.getName(value)
+        child_die = producer.new_die(dw.DW_TAG_enumerator, parent=die)
+        producer.add_name(child_die, name)
+        producer.add_unsigned_const(child_die, dw.DW_AT_const_value, value)
 
     return die
 
 
-def add_struct_type(cu, struct):
-    die = dwarf_new_die(dbg, DW_TAG_structure_type, cu, None, None, None)
-    record[struct.name] = die
-    dwarf_add_AT_name(die, struct.name.replace("struct", ""))
-    dwarf_add_AT_unsigned_const(dbg, die, DW_AT_byte_size, struct.length)
-    for c in struct.components:
-        member_die = dwarf_new_die(dbg, DW_TAG_member, die, None, None, None)
-        member_type_die = add_type(cu, c.dataType)
-        dwarf_add_AT_reference(dbg, member_die, DW_AT_type, member_type_die)
-        dwarf_add_AT_name(member_die, c.fieldName or c.defaultFieldName)
+def add_struct_type(producer, cu, struct, key):
+    die = producer.new_die(dw.DW_TAG_structure_type, parent=cu)
+    record[key] = die
 
-        loc_expr = dwarf_new_expr(dbg)
-        dwarf_add_expr_gen(loc_expr, DW_OP_plus_uconst, c.offset, 0)
+    struct_name = struct.getName() or "<anonymous>"
+    producer.add_name(die, struct_name.replace("struct", ""))
+    producer.add_unsigned_const(die, dw.DW_AT_byte_size, struct.getLength())
 
-        dwarf_add_AT_location_expr(dbg, member_die, DW_AT_data_member_location, loc_expr)
-    return die
+    for component in struct.getComponents():
+        member_die = producer.new_die(dw.DW_TAG_member, parent=die)
+        member_type_die = add_type(producer, cu, component.getDataType())
 
+        producer.add_reference(member_die, dw.DW_AT_type, member_type_die)
+        producer.add_name(
+            member_die,
+            component.getFieldName() or component.getDefaultFieldName(),
+        )
 
-def add_array_type(cu, array):
-    die = dwarf_new_die(dbg, DW_TAG_array_type, cu, None, None, None)
-    record[array.name] = die
-
-    element_die = add_type(cu, array.dataType)
-    dwarf_add_AT_reference(dbg, die, DW_AT_type, element_die)
-
-    subrange = dwarf_new_die(dbg, DW_TAG_subrange_type, die, None, None, None)
-    # array.length is the total size of the array, so we need to divide it with
-    # the dataType's length to find the number of elements
-    dwarf_add_AT_unsigned_const(dbg, subrange, DW_AT_count, array.length / array.dataType.length)
+        loc_expr = producer.new_expr()
+        producer.add_expr_gen(loc_expr, dw.DW_OP_plus_uconst, component.getOffset())
+        producer.add_location_expr(
+            member_die, dw.DW_AT_data_member_location, loc_expr
+        )
 
     return die
 
 
-class SectionsCallback(Dwarf_Callback_Func):
-    def __init__(self):
-        self.sections = []
+def add_array_type(producer, cu, array, key):
+    die = producer.new_die(dw.DW_TAG_array_type, parent=cu)
+    record[key] = die
 
-    def apply(self, name, *args):
-        name = str(name.getString(0))
-        print "info_callback", name
-        self.sections.append(name)
-        return len(self.sections) - 1
+    element_type = array.getDataType()
+    element_die = add_type(producer, cu, element_type)
+    producer.add_reference(die, dw.DW_AT_type, element_die)
+
+    subrange = producer.new_die(dw.DW_TAG_subrange_type, parent=die)
+    element_length = element_type.getLength()
+    count = array.getLength() // element_length if element_length else 0
+    producer.add_unsigned_const(subrange, dw.DW_AT_count, count)
+
+    return die
 
 
-def generate_dwarf_sections():
-    section_count = dwarf_transform_to_disk_form(dbg)
-    print "section_count", section_count
+def main():
+    global decompiler
+    global register_mappings
+    global exe_path
+    global out_path
+    global decompiled_c_path
 
-    sections = {}
-    for i in xrange(section_count):
-        section_index = LongByReference()
-        length = LongByReference()
-        content = dwarf_get_section_bytes(dbg, i, section_index, length)
+    exe_path, out_path, decompiled_c_path = get_output_paths()
 
-        section_index = section_index.value
-        length = length.value
-        content = bytearray(content.getByteArray(0, length))
-        section_name = sections_callback.sections[section_index]
-        if section_name not in sections:
-            sections[section_name] = ""
-        sections[section_name] += content
-        print section_index, section_name, length
-    return sections.items()
+    decompiler = generate_decomp_interface()
+    register_mappings = generate_register_mappings()
+
+    pointer64 = curr.getDefaultPointerSize() == 8
+    little_endian = not curr.getMemory().isBigEndian()
+    isa_name = get_isa_name(pointer64)
+
+    print("libdwarfp target:", isa_name, "DWARF v4")
+
+    with DwarfProducer(
+        isa_name=isa_name,
+        dwarf_version="V4",
+        pointer64=pointer64,
+        little_endian=little_endian,
+    ) as producer:
+        add_debug_info(producer)
+        write_source()
+        sections = producer.transform()
+
+    add_sections_to_elf(exe_path, out_path, list(sections.items()))
+
+    print("Done.")
+    print("ELF saved to", out_path)
+    print("C source saved to", decompiled_c_path)
 
 
 if __name__ == "__main__":
-    decompiler = generate_decomp_interface()
-    register_mappings, stack_register_dwarf = generate_register_mappings()
-    dbg = PointerByReference()
-    err = PointerByReference()
-    sections_callback = SectionsCallback()
-    dwarf_producer_init(
-        DW_DLC_WRITE | DW_DLC_SYMBOLIC_RELOCATIONS | DW_DLC_POINTER64 | DW_DLC_OFFSET32 | DW_DLC_TARGET_LITTLEENDIAN,
-        sections_callback,
-        None,
-        None,
-        None,
-        "x86_64",
-        "V2",
-        None,
-        dbg,
-    )
-    dbg = Dwarf_P_Debug(dbg.value)
-    add_debug_info()
-    write_source()
-    sections = generate_dwarf_sections()
-    dwarf_producer_finish_a(dbg)
-    add_sections_to_elf(exe_path, out_path, sections)
-    print "Done."
-    print "ELF saved to", out_path
-    print "C source saved to", decompiled_c_path
+    main()

@@ -109,6 +109,10 @@ DW_OP_regx = 0x90
 DW_OP_fbreg = 0x91
 DW_OP_call_frame_cfa = 0x9C
 
+# Large enough for the register mappings used by the target architectures.
+# Mirrors DW_FRAME_LAST_REG_NUM from libdwarf.
+DW_FRAME_LAST_REG_NUM = 189
+
 
 class DwarfError(RuntimeError):
     """Raised when a libdwarfp call fails."""
