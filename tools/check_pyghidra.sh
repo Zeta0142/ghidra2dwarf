@@ -6,8 +6,8 @@
 #   PYGHIDRA_PYTHON     Python interpreter with pyghidra installed
 #
 # Example:
-#   GHIDRA_INSTALL_DIR=/home/z142/ghidra_12.1.3_PUBLIC \
-#   PYGHIDRA_PYTHON=/home/z142/.config/ghidra/ghidra_12.1.3_PUBLIC/venv/bin/python3 \
+#   GHIDRA_INSTALL_DIR=/path/to/ghidra \
+#   PYGHIDRA_PYTHON=/path/to/venv/bin/python3 \
 #   ./tools/check_pyghidra.sh
 set -euo pipefail
 

@@ -22,12 +22,12 @@ Inside gdb you can now use:
 3. `ni` to step one assembly instruction.
 4. `p variable` to print the variable's value.
 
-## Current branch: PyGhidra + libdwarfp
+## Implementation
 
-This branch is the migration from the original Jython/JNA implementation to:
+The exporter uses:
 
 - Ghidra 12.x with **PyGhidra**
-- **ctypes** instead of JNA
+- **ctypes** to call the native producer API
 - the modern **libdwarfp** producer API
 - a vendored libdwarf 2.3.3 under `vendor/libdwarf`
 
@@ -40,10 +40,9 @@ them with `tools/build_libdwarf.sh` as described below.
 - Ghidra 12.x with PyGhidra
 - Python 3.9+
 - CMake, a C/C++ compiler and Ninja (or Make) for the vendored libdwarf
-- Linux/macOS/Windows.  The current branch has been tested on Linux x86-64 and
-  x86-32.
+- Linux/macOS/Windows. Tested on Linux x86-64 and x86-32.
 
-## Build the vendored libdwarf
+## Build the vendored libdwarf (source checkout only)
 
 ```bash
 ./tools/build_libdwarf.sh
@@ -93,12 +92,8 @@ python3 -m pyghidra \
 
 ## Verification
 
-The current branch was verified with:
-
-- Ghidra 12.1.3
-- PyGhidra 3.1.0
-- Python 3.14
-- libdwarf 2.3.3
+The implementation has been exercised with Ghidra 12.x + PyGhidra and
+libdwarf 2.3.3.
 
 Tested fixtures:
 
@@ -128,5 +123,3 @@ Ghidra Program
 - Stack variable locations use the same approximation as the original project.
 - Synthetic/hash variables are skipped.
 - The ELF writer is append-only and assumes a normal section-header table.
-- MCP's `run_ghidra_script` copies only the script file; for GUI testing add the
-  full `src` directory to the Script Manager instead.

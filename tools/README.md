@@ -11,8 +11,6 @@ PyGhidra / CPython 3
         -> ELF
 ```
 
-It does not depend on Jython, JNA, or `libdwarf.jar`.
-
 ## Build the vendored libdwarf / libdwarfp
 
 libdwarf 2.3.3 is vendored under `vendor/libdwarf/`. Build it with:
@@ -70,16 +68,7 @@ python3 tools/smoke_producer.py --out /tmp/ghidra2dwarf-smoke --no-objcopy
 
 ## PyGhidra smoke test
 
-The binding is verified inside **PyGhidra 3.1.0 + Ghidra 12.1.3**:
-
-```text
-python: 3.14.8
-ctypes: /usr/lib64/python3.14/ctypes/__init__.py
-currentProgram: test_ghidra - .ProgramDB
-libdwarfp module: .../src/libdwarfp.py
-sections: {'.debug_abbrev': 55, '.debug_info': 81, '.debug_line': 53}
-RESULT: OK
-```
+The binding has been verified with PyGhidra on Ghidra 12.x.
 
 Run it with a Python that has `pyghidra` installed:
 
@@ -90,19 +79,6 @@ PYGHIDRA_PYTHON=/path/to/venv/bin/python3 \
 ```
 
 The script is `tools/ghidra_scripts/check_pyghidra.py`.
-
-### Ghidra MCP note
-
-If you want to run the check through Ghidra MCP's `run_ghidra_script`, the MCP
-bridge must be started with:
-
-```bash
-export GHIDRA_MCP_ALLOW_SCRIPTS=1
-```
-
-The MCP runner copies only the selected script into `~/ghidra_scripts`; this
-project needs the full `src` directory, so MCP is not a substitute for adding
-`src` to the Script Manager (or using the headless runner).
 
 ## Full integration smoke test
 
